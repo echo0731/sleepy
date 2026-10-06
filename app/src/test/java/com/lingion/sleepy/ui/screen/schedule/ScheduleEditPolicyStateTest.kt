@@ -30,11 +30,12 @@ class ScheduleEditPolicyStateTest {
 
     @Test
     fun invariant1_initial_state_has_no_policy_and_counts_as_unchanged() {
-        val s = ScheduleEditPolicyState(tableId = 1L, originalEffectiveSchedule = pt())
+        val original = pt()
+        val s = ScheduleEditPolicyState(tableId = 1L, originalEffectiveSchedule = original)
 
         assertEquals(SchedulePolicy.NONE, s.pendingSchedulePolicy.value)
         assertFalse(s.hasScheduleChanged())
-        assertEquals(pt(), s.draftEffectiveSchedule.value)
+        assertEquals(original, s.draftEffectiveSchedule.value)
     }
 
     @Test
