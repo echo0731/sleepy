@@ -1,9 +1,18 @@
 package com.lingion.sleepy.ui.screen.imports
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,6 +31,9 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -50,16 +63,23 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.core.content.ContextCompat
 import com.lingion.sleepy.R
 import com.lingion.sleepy.data.jw.JwImportViewModel
 import com.lingion.sleepy.data.jw.JwProtocol
 import com.lingion.sleepy.data.jw.JwSchoolInfo
 import com.lingion.sleepy.data.jw.SchoolDomainMatch
+import com.lingion.sleepy.data.jw.SchoolCityIndex
+import com.lingion.sleepy.data.jw.SchoolLocationState
 import com.lingion.sleepy.ui.theme.SleepyTheme
 import com.lingion.sleepy.ui.theme.noRippleClickable
 import com.lingion.sleepy.util.PinyinMatcher
@@ -121,7 +141,7 @@ private fun groupByLetter(schools: List<JwSchoolInfo>): List<SchoolSection> {
 /**
  * 学校选择页 — 教务直连第一步
  *
- * 数据来自 assets/schools.json（145 所带真 URL+type）
+ * 数据来自 assets/schools.json；城市推荐元数据来自 assets/school_cities.json。
  * 右侧字母索引栏可点击/滑动跳转到对应分组
  */
 @Composable
@@ -131,6 +151,50 @@ fun SchoolSelectScreen(
     viewModel: JwImportViewModel = viewModel()
 ) {
     val schools by viewModel.schools.collectAsState()
+    val locationState by viewModel.schoolLocation.collectAsState()
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var resumeLocationAfterSettings by rememberSaveable { mutableStateOf(false) }
+    val requestedPermissions = arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)
+    val hasLocationPermission = {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    }
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        // The locator derives accuracy from actual system grants, including approximate-only access.
+        viewModel.locateSchoolCity()
+    }
+    val requestLocation: () -> Unit = {
+        if (hasLocationPermission()) viewModel.locateSchoolCity()
+        else locationPermission.launch(requestedPermissions)
+    }
+    val openPermissionSettings: () -> Unit = {
+        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.parse("package:${context.packageName}")))
+    }
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) viewModel.cancelSchoolLocation()
+            // Only continue a lookup when its button opened system location settings.
+            // Entering this screen or returning from permission settings does not locate.
+            if (event == Lifecycle.Event.ON_RESUME && resumeLocationAfterSettings) {
+                resumeLocationAfterSettings = false
+                viewModel.locateSchoolCity()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.cancelSchoolLocation()
+        }
+    }
+    val retryLocation: () -> Unit = {
+        if (locationState == SchoolLocationState.LocationDisabled) {
+            resumeLocationAfterSettings = true
+            context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+        } else {
+            requestLocation()
+        }
+    }
     // 搜索词 rememberSaveable: 选校进 WebView 再返回, 列表滚动位置由 JwImportActivity
     // stage 分支的 SaveableStateProvider 恢复, 搜索词也要跟着回来(remember 会随覆盖销毁)
     var query by rememberSaveable { mutableStateOf("") }
@@ -160,14 +224,21 @@ fun SchoolSelectScreen(
     // 按字母分组（仅无搜索时显示分组+索引栏）
     val sections = remember(filtered) { groupByLetter(filtered) }
     val showIndexBar = query.isBlank() && sections.size > 1
+    val showRecommendations = query.isBlank()
+    val city = (locationState as? SchoolLocationState.Ready)?.city
+    val recommendedSchools = remember(schools, city) {
+        city?.let { SchoolCityIndex.schoolsInCity(schools, it) }.orEmpty()
+    }
+    // The recommendation card and custom URL entry each occupy one LazyColumn item.
+    val sectionStartIndex = if (showRecommendations) 2 else 1
 
     val listState = rememberLazyListState()
 
     // section letter → list index 映射（LazyColumn item index: section header 占偶数位, school 占奇数位）
-    // item index 0 恒为「自定义教务链接」入口 — 字母目标索引从 1 起算
-    val letterToIndex = remember(sections) {
+    // Account for the recommendation card so letter taps still land on their headers.
+    val letterToIndex = remember(sections, sectionStartIndex) {
         val map = mutableMapOf<String, Int>()
-        var idx = 1 // custom_url_entry
+        var idx = sectionStartIndex
         for (sec in sections) {
             map[sec.letter] = idx
             idx++ // header
@@ -176,12 +247,12 @@ fun SchoolSelectScreen(
         map
     }
 
-    // 当前激活字母（用于高亮）— runningIdx 从 1 起 (item 0 = 自定义教务链接入口)
-    val activeLetter by remember {
+    // 当前激活字母（用于高亮）— 起始索引随推荐卡是否显示而变化。
+    val activeLetter by remember(sections, sectionStartIndex) {
         derivedStateOf {
             val firstVisible = listState.firstVisibleItemIndex
             // 找当前第一个 section header
-            var runningIdx = 1 // custom_url_entry
+            var runningIdx = sectionStartIndex
             for (sec in sections) {
                 val headerIdx = runningIdx
                 val lastSchoolIdx = runningIdx + sec.schools.size
@@ -294,7 +365,19 @@ fun SchoolSelectScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        // 自定义教务链接入口 — 恒在列表最顶 (A 分组之前), 不随搜索过滤消失:
+                        if (showRecommendations) {
+                            item(key = "possible_schools") {
+                                PossibleSchoolsCard(
+                                    state = locationState,
+                                    schools = recommendedSchools,
+                                    isLoadingSchools = schools.isEmpty(),
+                                    onLocate = retryLocation,
+                                    onPermissionSettings = openPermissionSettings,
+                                    onSchoolSelected = onSchoolSelected
+                                )
+                            }
+                        }
+                        // 自定义教务链接入口 — 位于推荐卡后、A 分组前，不随搜索过滤消失:
                         // 学校不在目录里的用户从这里走, 点了直接聚焦搜索框弹键盘输 URL
                         item(key = "custom_url_entry") {
                             CustomUrlEntryRow(
@@ -348,8 +431,88 @@ fun SchoolSelectScreen(
     }
 }
 
+/** Same-city suggestions stay inside one outlined box and use the original school click path. */
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+private fun PossibleSchoolsCard(
+    state: SchoolLocationState,
+    schools: List<JwSchoolInfo>,
+    isLoadingSchools: Boolean,
+    onLocate: () -> Unit,
+    onPermissionSettings: () -> Unit,
+    onSchoolSelected: (JwSchoolInfo) -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val city = (state as? SchoolLocationState.Ready)?.city
+    var expanded by rememberSaveable(city) { mutableStateOf(false) }
+    OutlinedCard(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.possible_schools),
+                        style = MaterialTheme.typography.titleMedium, color = colors.primary)
+                    Text(
+                        text = when (state) {
+                            is SchoolLocationState.Ready -> stringResource(R.string.school_location_city, state.city, schools.size)
+                            SchoolLocationState.Locating -> stringResource(R.string.school_location_loading)
+                            SchoolLocationState.PermissionDenied -> stringResource(R.string.school_location_denied)
+                            SchoolLocationState.AccuracyInsufficient -> stringResource(R.string.school_location_accuracy_insufficient)
+                            SchoolLocationState.LocationDisabled -> stringResource(R.string.school_location_disabled)
+                            SchoolLocationState.PositionUnavailable -> stringResource(R.string.school_location_no_fix)
+                            SchoolLocationState.Unavailable -> stringResource(R.string.school_location_unavailable)
+                            SchoolLocationState.Idle -> stringResource(R.string.school_location_hint)
+                        },
+                        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant
+                    )
+                }
+                if (state == SchoolLocationState.Locating) {
+                    CircularProgressIndicator(modifier = Modifier.padding(8.dp).size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    TextButton(onClick = onLocate) {
+                        Text(stringResource(when (state) {
+                            SchoolLocationState.Idle -> R.string.school_location_locate
+                            SchoolLocationState.PermissionDenied -> R.string.school_location_enable
+                            SchoolLocationState.LocationDisabled -> R.string.school_location_settings
+                            else -> R.string.school_location_retry
+                        }))
+                    }
+                }
+            }
+            if (state is SchoolLocationState.Ready) {
+                if (schools.isEmpty()) {
+                    Text(stringResource(if (isLoadingSchools) R.string.loading else R.string.school_location_no_matches),
+                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+                } else {
+                    Text(stringResource(R.string.school_location_city_hint),
+                        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp))
+                    (if (expanded) schools else schools.take(5)).forEach { school ->
+                        SchoolRow(school = school, onClick = { onSchoolSelected(school) })
+                        HorizontalDivider(color = colors.outlineVariant.copy(alpha = SleepyTheme.Alpha.hairline))
+                    }
+                }
+            }
+            if (state == SchoolLocationState.PermissionDenied || state == SchoolLocationState.AccuracyInsufficient || state is SchoolLocationState.Ready) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (state is SchoolLocationState.Ready && schools.size > 5) {
+                        TextButton(onClick = { expanded = !expanded }) {
+                            Text(stringResource(if (expanded) R.string.school_location_collapse else R.string.school_location_show_all))
+                        }
+                    }
+                    TextButton(onClick = onPermissionSettings) {
+                        Text(stringResource(R.string.school_location_permission_settings))
+                    }
+                }
+            }
+        }
+    }
+}
+
 /**
- * 「自定义教务链接」入口 — 恒居列表最顶 (A 分组之前)。
+ * 「自定义教务链接」入口 — 位于推荐卡后、A 分组之前。
  * 与 UrlDirectRow 同构 (Link 图标 + primary 色) 但语义是引导: 点击不导入,
  * 而是聚焦搜索框弹键盘, 让用户把教务 URL 输进去 — 输入合法 URL 后
  * 搜索框下方出现 UrlDirectRow 完成实际导入。

@@ -9,6 +9,8 @@ import com.lingion.sleepy.data.entity.TimeTableEntity
 import com.lingion.sleepy.data.AppDatabase
 import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,6 +42,24 @@ class JwImportViewModel(application: Application) : AndroidViewModel(application
     private val _schools = MutableStateFlow<List<JwSchoolInfo>>(emptyList())
     val schools: StateFlow<List<JwSchoolInfo>> = _schools.asStateFlow()
 
+    private val _schoolLocation = MutableStateFlow<SchoolLocationState>(SchoolLocationState.Idle)
+    val schoolLocation: StateFlow<SchoolLocationState> = _schoolLocation.asStateFlow()
+    private var locationJob: Job? = null
+    fun locateSchoolCity() {
+        locationJob?.cancel()
+        _schoolLocation.value = SchoolLocationState.Locating
+        locationJob = viewModelScope.launch {
+            _schoolLocation.value = SchoolCityLocator(getApplication<Application>()).locate()
+        }
+    }
+
+    fun cancelSchoolLocation() {
+        locationJob?.cancel()
+        if (_schoolLocation.value == SchoolLocationState.Locating) {
+            _schoolLocation.value = SchoolLocationState.Idle
+        }
+    }
+
     private val _importState = MutableStateFlow<ImportState>(ImportState.Idle)
     val importState: StateFlow<ImportState> = _importState.asStateFlow()
 
@@ -53,7 +73,14 @@ class JwImportViewModel(application: Application) : AndroidViewModel(application
                 val app = getApplication<Application>()
                 val text = app.assets.open("schools.json")
                     .bufferedReader().use { it.readText() }
-                val list = parseSchoolsJson(text)
+                // Missing/bad city data must never prevent loading the import directory.
+                val cityIndex = try {
+                    SchoolCityIndex.parse(app.assets.open("school_cities.json")
+                        .bufferedReader().use { it.readText() })
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) { emptyMap() }
+                val list = parseSchoolsJson(text).map { it.copy(cities = cityIndex[it.name].orEmpty()) }
                 _schools.value = list
             } catch (e: Exception) {
                 _importState.value = ImportState.Error("加载学校列表失败: ${e.message}")

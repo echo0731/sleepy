@@ -12,11 +12,12 @@ import org.junit.Test
 class JwUrlBarContractTest {
     private fun loadSource(name: String): String {
         val rel = "app/src/main/java/com/lingion/sleepy/ui/screen/imports/$name"
-        val userDir = System.getProperty("user.dir") ?: ""
+        val userDir = (System.getProperty("user.dir") ?: "").replace('\\', '/')
         val fromAppDir = if (userDir.endsWith("/app")) {
             "$userDir/src/main/java/com/lingion/sleepy/ui/screen/imports/$name"
         } else null
         return sequenceOf(
+            System.getProperty("sleepy.test.root")?.let { java.io.File(it, rel) },
             java.io.File(rel),
             fromAppDir?.let { java.io.File(it) },
             java.io.File("/private/tmp/jw-url-address-bar/$rel"),
