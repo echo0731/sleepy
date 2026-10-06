@@ -11,6 +11,10 @@ import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
@@ -74,17 +78,20 @@ class SchoolCityLocator(private val context: Context) {
         SystemClock.elapsedRealtimeNanos() - elapsedRealtimeNanos,
     )
 
-    private fun offlineIndex(): OfflineSchoolCityIndex? = try {
-        cachedOfflineIndex ?: synchronized(offlineIndexLock) {
+    private suspend fun offlineIndex(): OfflineSchoolCityIndex? = try {
+        val coroutineContext = currentCoroutineContext()
+        cachedOfflineIndex ?: offlineIndexLock.withLock {
             // AAPT unpacks .gz source assets and strips that suffix in the APK.
-            cachedOfflineIndex ?: context.assets.open("school_city_boundaries.json")
-                .bufferedReader().use { OfflineSchoolCityIndex.parse(it.readText()) }
+            cachedOfflineIndex ?: context.assets.open("school_city_boundaries.bin")
+                .use { OfflineSchoolCityIndex.parse(it) { coroutineContext.ensureActive() } }
                 .also { cachedOfflineIndex = it }
         }
+    } catch (e: CancellationException) {
+        throw e
     } catch (_: Exception) { null }
 
     private companion object {
-        val offlineIndexLock = Any()
+        val offlineIndexLock = Mutex()
         @Volatile var cachedOfflineIndex: OfflineSchoolCityIndex? = null
     }
 }

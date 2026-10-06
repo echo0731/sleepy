@@ -45,6 +45,8 @@
 
 ## Overview
 
+The school selector requests foreground location only after tapping Locate, for same-city school suggestions. Both precise and approximate access are supported; coordinates are neither saved nor sent to third parties. Fine location also supports devices that can obtain a fix only from GPS, without network location.
+
 | Item | Value |
 |---|---|
 | Package | `com.lingion.sleepy` |

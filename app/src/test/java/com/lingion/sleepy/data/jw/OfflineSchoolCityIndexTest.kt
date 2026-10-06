@@ -1,7 +1,6 @@
 package com.lingion.sleepy.data.jw
 
 import org.junit.Assert.*
-import org.json.JSONObject
 import org.junit.Test
 import java.io.File
 import java.util.zip.GZIPInputStream
@@ -10,12 +9,12 @@ class OfflineSchoolCityIndexTest {
     companion object {
         private val index by lazy {
             val root = System.getProperty("sleepy.test.root")?.let(::File) ?: File("..")
-            GZIPInputStream(File(root, "app/src/main/assets/school_city_boundaries.json.gz").inputStream())
-                .bufferedReader().use { OfflineSchoolCityIndex.parse(it.readText()) }
+            GZIPInputStream(File(root, "app/src/main/assets/school_city_boundaries.bin.gz").inputStream())
+                .use { OfflineSchoolCityIndex.parse(it) }
         }
     }
 
-    @Test fun `reported emulator location resolves to Huizhou without any geocoder`() {
+    @Test fun `Huizhou coordinate resolves without any geocoder`() {
         assertEquals("惠州市", index.cityAt(23.103775, 114.471620))
     }
 
@@ -47,7 +46,7 @@ class OfflineSchoolCityIndexTest {
     }
 
     @Test fun `holes and disconnected islands are respected`() {
-        val small = OfflineSchoolCityIndex.parse("""{"areas":[{"name":"A","polygons":[
+        val small = SchoolBoundaryFixture.parse("""{"areas":[{"name":"A","polygons":[
             [[[0,0],[10,0],[10,10],[0,10],[0,0]],[[4,4],[6,4],[6,6],[4,6],[4,4]]],
             [[[20,20],[22,20],[22,22],[20,22],[20,20]]]
         ]}]}""")
@@ -68,9 +67,7 @@ class OfflineSchoolCityIndexTest {
     @Test fun `all configured school cities exist in the bundled boundary names`() {
         val root = System.getProperty("sleepy.test.root")?.let(::File) ?: File("..")
         val assets = File(root, "app/src/main/assets")
-        val areas = GZIPInputStream(File(assets, "school_city_boundaries.json.gz").inputStream())
-            .bufferedReader().use { JSONObject(it.readText()).getJSONArray("areas") }
-        val names = (0 until areas.length()).map { areas.getJSONObject(it).getString("name") }.toSet()
+        val names = index.cityNames
         val cities = SchoolCityIndex.parse(File(assets, "school_cities.json").readText())
         for ((school, locations) in cities) {
             for (city in locations) assertTrue("Missing boundary for $school: $city", city in names)

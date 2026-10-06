@@ -9,7 +9,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SchoolLocationLookupTest {
-    private val index = OfflineSchoolCityIndex.parse("""{"areas":[
+    private val index = SchoolBoundaryFixture.parse("""{"areas":[
         {"name":"A","polygons":[[[[0,0],[1,0],[1,1],[0,1],[0,0]]]]}
     ]}""")
     private val sample = SchoolLocationFix(0.5, 0.5, 30.0, 0)

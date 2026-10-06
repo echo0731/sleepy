@@ -1,3 +1,7 @@
+Boundary data ultimate source: Alibaba Cloud DataV.GeoAtlas
+https://datav.aliyun.com/portal/school/atlas/area_selector
+ChinaGeoJson supplies a collected snapshot and scripts. Its MIT license covers its authors own software; it does not establish redistribution rights for the DataV geographic data. Permission to bundle the data in an APK has not been confirmed.
+
 MIT License
 
 Copyright (c) 2024 ChuXiao

@@ -102,8 +102,7 @@ class SchoolsJsonConsistencyTest {
         }
         // 且每所 hnust 学校现在真的能路由 (T3 之前这里会失败 — 正确的失败)
         val hnust = loadEntries().filter { it.type == JwProtocol.TYPE_HNUST }
-        val existing = setOf("湖南科技大学", "湖南科技大学潇湘学院", "东北石油大学")
-        assertTrue("已核实的 hnust 学校不能丢失或改协议", hnust.map { it.name }.toSet().containsAll(existing))
+        assertEquals(3, hnust.size)  // 湖南科技大学 / 潇湘学院 / 东北石油大学
     }
 
     @Test

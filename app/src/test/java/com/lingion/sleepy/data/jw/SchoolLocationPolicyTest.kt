@@ -10,7 +10,7 @@ class SchoolLocationPolicyTest {
     private fun fix(accuracy: Double = 30.0, ageSeconds: Long = 1) =
         SchoolLocationFix(23.123456, 114.456789, accuracy, TimeUnit.SECONDS.toNanos(ageSeconds))
 
-    private val border = OfflineSchoolCityIndex.parse("""{"areas":[
+    private val border = SchoolBoundaryFixture.parse("""{"areas":[
         {"name":"A","polygons":[[[[0,0],[1,0],[1,1],[0,1],[0,0]]]]},
         {"name":"B","polygons":[[[[1,0],[2,0],[2,1],[1,1],[1,0]]]]}
     ]}""")

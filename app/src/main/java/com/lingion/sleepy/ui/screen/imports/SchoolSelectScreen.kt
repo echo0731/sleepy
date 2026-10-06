@@ -1,6 +1,7 @@
 package com.lingion.sleepy.ui.screen.imports
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -65,6 +66,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.SoftwareKeyboardController
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -168,8 +170,10 @@ fun SchoolSelectScreen(
         else locationPermission.launch(requestedPermissions)
     }
     val openPermissionSettings: () -> Unit = {
-        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-            Uri.parse("package:${context.packageName}")))
+        try {
+            context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:${context.packageName}")))
+        } catch (_: ActivityNotFoundException) { /* Some ROMs do not provide this settings page. */ }
     }
     DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
@@ -189,8 +193,10 @@ fun SchoolSelectScreen(
     }
     val retryLocation: () -> Unit = {
         if (locationState == SchoolLocationState.LocationDisabled) {
-            resumeLocationAfterSettings = true
-            context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            try {
+                context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                resumeLocationAfterSettings = true
+            } catch (_: ActivityNotFoundException) { /* Keep manual lookup available. */ }
         } else {
             requestLocation()
         }
@@ -453,7 +459,7 @@ private fun PossibleSchoolsCard(
                         style = MaterialTheme.typography.titleMedium, color = colors.primary)
                     Text(
                         text = when (state) {
-                            is SchoolLocationState.Ready -> stringResource(R.string.school_location_city, state.city, schools.size)
+                            is SchoolLocationState.Ready -> pluralStringResource(R.plurals.school_location_city, schools.size, state.city, schools.size)
                             SchoolLocationState.Locating -> stringResource(R.string.school_location_loading)
                             SchoolLocationState.PermissionDenied -> stringResource(R.string.school_location_denied)
                             SchoolLocationState.AccuracyInsufficient -> stringResource(R.string.school_location_accuracy_insufficient)

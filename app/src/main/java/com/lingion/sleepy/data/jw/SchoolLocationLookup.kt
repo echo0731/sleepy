@@ -58,6 +58,7 @@ internal object SchoolLocationLookup {
             }
             rejected
         } finally {
+            indexRequest.cancel()
             requests.forEach { it.cancel() }
             results.close()
         }

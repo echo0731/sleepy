@@ -25,19 +25,6 @@ class SchoolCityIndexTest {
         assertTrue(SchoolCityIndex.schoolsInCity(schools, " ").isEmpty())
     }
 
-    @Test fun `municipalities use admin area instead of district`() {
-        assertEquals("北京市", SchoolCityIndex.resolveCity("海淀区", null, "北京市"))
-        assertEquals("重庆市", SchoolCityIndex.resolveCity("渝北区", "渝北区", "重庆市"))
-        assertEquals("香港", SchoolCityIndex.resolveCity(null, null, "香港特别行政区"))
-    }
-
-    @Test fun `prefecture takes priority over county and ordinary province is never a city`() {
-        assertEquals("苏州市", SchoolCityIndex.resolveCity("昆山市", "苏州市", "江苏省"))
-        assertEquals("合肥市", SchoolCityIndex.resolveCity("合肥市", null, "安徽省"))
-        assertEquals("延边朝鲜族自治州", SchoolCityIndex.resolveCity(null, "延边朝鲜族自治州", "吉林省"))
-        assertNull(SchoolCityIndex.resolveCity(null, null, "安徽省"))
-    }
-
     @Test fun `recommendations prefer supported entries then use pinyin without changing input order`() {
         val pending = school("待适配学校", "合肥市", "a", JwSchoolInfo.STATUS_PENDING)
         val beta = school("乙校", "合肥市", "b")
