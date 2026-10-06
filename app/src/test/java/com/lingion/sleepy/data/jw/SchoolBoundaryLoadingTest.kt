@@ -3,9 +3,11 @@ package com.lingion.sleepy.data.jw
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.*
 import org.junit.Test
@@ -87,25 +89,38 @@ class SchoolBoundaryLoadingTest {
     }
 
     @Test fun `parent cancellation during parsing also cancels provider`() = runBlocking {
-        val started = CompletableDeferred<Unit>()
+        val parsingStarted = CompletableDeferred<Unit>()
+        val providerStarted = CompletableDeferred<Unit>()
         val cancelled = CompletableDeferred<Unit>()
         val task = async {
             SchoolLocationLookup.findCity(SchoolLocationMode.PRECISE, listOf("gps"), emptyList(), {
                 val context = currentCoroutineContext()
                 OfflineSchoolCityIndex.parse(ByteArrayInputStream(sample)) {
-                    started.complete(Unit)
+                    parsingStarted.complete(Unit)
                     while (context.isActiveForTest()) Thread.yield()
                     context.ensureActive()
                 }
             }) {
-                try { kotlinx.coroutines.awaitCancellation() }
+                try {
+                    providerStarted.complete(Unit)
+                    kotlinx.coroutines.awaitCancellation()
+                }
                 finally { cancelled.complete(Unit) }
             }
         }
-        started.await()
-        task.cancel()
-        task.join()
-        assertTrue(cancelled.isCompleted)
+        try {
+            // Both tasks must be running before testing their cancellation. The IO parser
+            // can start before the provider coroutine gets its first dispatch on the JVM.
+            withTimeout(5_000) {
+                parsingStarted.await()
+                providerStarted.await()
+            }
+            task.cancelAndJoin()
+            assertTrue(task.isCancelled)
+            assertTrue(cancelled.isCompleted)
+        } finally {
+            task.cancelAndJoin()
+        }
     }
 
     private fun kotlin.coroutines.CoroutineContext.isActiveForTest(): Boolean =
